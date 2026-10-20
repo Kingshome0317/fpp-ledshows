@@ -1,7 +1,10 @@
 {
-  "ConnectorToken": {
-    "description": "Private LEDshows pairing key; stored separately in plugindata",
-    "type": "password",
-    "default": ""
-  }
+  "settings": {
+    "ConnectorToken": {
+      "description": "Private LEDshows pairing key; stored separately in plugindata",
+      "type": "password",
+      "default": ""
+    }
+  },
+  "settingGroups": {}
 }
