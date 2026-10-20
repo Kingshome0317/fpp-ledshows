@@ -24,7 +24,7 @@ An independent setting allows a request to start music when FPP is idle. Request
 
 ## Listening
 
-Enable audio publication to offer the selected tracks on your public show page. The connector copies only the selected source audio to kaart.ledshows.nl (maximum 50 MB per track). Visitors tap Luister mee to play the currently active track; timing follows FPP, with small drift corrections and a manual offset control.
+Enable audio publication to offer the selected tracks on your public show page. The connector uses FPP’s installed FFmpeg to extract and normalize only the audio of selected media into AAC/M4A, then publishes it to kaart.ledshows.nl (maximum 50 MB per converted track). Large MP4 videos stay on the Pi; only their audio is uploaded. Visitors tap Luister mee to join the currently active track; timing follows FPP automatically, with small drift corrections.
 
 This is synchronized playback of the same source audio, not microphone recognition or a capture of speakers, live announcements or hardware mixer output. Browser, speaker and network delays limit precision. No microphone permission is requested.
 
@@ -32,7 +32,7 @@ Audio is stored outside the public web root and served through the show API only
 
 ## Operation and privacy
 
-Private settings and transient request state: `<mediadir>/plugindata/fpp-ledshows/`, directory 0700, files 0600. Pairing keys are never displayed or logged. Log: FPP's log directory, `plugin-fpp-ledshows.log`. FPP lifecycle hooks run one connector as user fpp. Audio transfers happen in a background worker so they do not stop status updates. No extra Python packages.
+Private settings and transient request state: `<mediadir>/plugindata/fpp-ledshows/`, directory 0700, files 0600. Pairing keys are never displayed or logged. Log: FPP's log directory, `plugin-fpp-ledshows.log`. FPP lifecycle hooks run one connector as user fpp. Audio transfers happen in a background worker so they do not stop status updates. No extra Python packages. Audio conversion uses the FFmpeg executable included with FPP, one background conversion at a time.
 
 Before uninstalling, disable the connector in its page and revoke the key on the website. Uninstall stops its process and removes private configuration; source songs and your own programs stay.
 
