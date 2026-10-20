@@ -27,7 +27,10 @@ HTTP = urllib.request.build_opener(NoRedirect())
 
 def request(url, payload=None, timeout=3):
     data = None if payload is None else json.dumps(payload).encode()
-    req = urllib.request.Request(url, data, {'User-Agent': 'LEDshows-FPP-Connector/0.3', 'Content-Type': 'application/json'})
+    headers = {'User-Agent': 'LEDshows-FPP-Connector/0.3'}
+    if data is not None:
+        headers['Content-Type'] = 'application/json'
+    req = urllib.request.Request(url, data, headers)
     with HTTP.open(req, timeout=timeout) as res:
         raw = res.read(2_000_000)
         try:
