@@ -10,6 +10,8 @@ import signal
 import time
 import urllib.parse
 import urllib.request
+from library import discover, REQUEST_PROGRAM
+from audio_publisher import AudioPublisher
 
 ENDPOINT = 'https://kaart.ledshows.nl/nieuw/?api=fpp-heartbeat'
 FPP = 'http://127.0.0.1'
@@ -25,7 +27,7 @@ HTTP = urllib.request.build_opener(NoRedirect())
 
 def request(url, payload=None, timeout=3):
     data = None if payload is None else json.dumps(payload).encode()
-    req = urllib.request.Request(url, data, {'User-Agent': 'LEDshows-FPP-Connector/0.2', 'Content-Type': 'application/json'})
+    req = urllib.request.Request(url, data, {'User-Agent': 'LEDshows-FPP-Connector/0.3', 'Content-Type': 'application/json'})
     with HTTP.open(req, timeout=timeout) as res:
         raw = res.read(2_000_000)
         try:
@@ -78,6 +80,8 @@ class Connector:
         self.songs = []
         self.allowed = {}
         self.updated_catalog = 0
+        self.library = []
+        self.audio_publisher = AudioPublisher(config, self.state_path.parent, HTTP)
         self.state = {}
         if self.state_path.exists():
             self.state = json.loads(self.state_path.read_text())
@@ -96,25 +100,32 @@ class Connector:
         atomic_json(self.state_path, self.state)
 
     def catalog(self):
-        songs, allowed = [], {}
-        for name in self.config.get('playlists', []):
-            playlist = self.transport(FPP + '/api/playlist/' + urllib.parse.quote(name, safe=''))
-            # Requests are intentionally limited to single media/sequence items.
-            # Multi-song playlists and command/script items are not visitor selectable.
-            lead = (playlist.get('leadIn') or []) + (playlist.get('leadOut') or [])
-            items = [i for i in playlist.get('mainPlaylist', []) if i.get('enabled', 1)]
-            if lead or len(items) != 1 or items[0].get('type') not in ('both', 'media', 'sequence'):
-                logging.warning('One configured playlist is not a single playable song; skipped')
-                continue
-            item = items[0]
-            sid = song_id(name)
-            audio = self.config.get('audio', {}).get(name, '')
-            if audio and urllib.parse.urlparse(audio).scheme != 'https':
-                logging.warning('One audio URL is not HTTPS; skipped')
-                audio = ''
-            songs.append({'id': sid, 'title': name, 'audioUrl': audio})
-            allowed[sid] = {'playlist': name, 'media': item.get('mediaName', ''), 'sequence': item.get('sequenceName', '')}
-        self.songs, self.allowed = songs, allowed
+        self.library, programs = discover(self.transport, FPP)
+        selected = self.config.get('songs')
+        if selected is None:
+            selected = []
+            for name in self.config.get('playlists', []):
+                program = self.transport(FPP + '/api/playlist/' + urllib.parse.quote(name, safe=''))
+                selected.extend(i.get('mediaName') for i in program.get('mainPlaylist', []) if i.get('enabled', 1) and i.get('type') in ('both', 'media'))
+        chosen = [item for item in self.library if item['filename'] in selected][:100]
+        entries = [{'type': 'both' if item['sequence'] else 'media', 'enabled': 1, 'playOnce': 0,
+                    'mediaName': item['filename'], 'sequenceName': item['sequence'], 'videoOut': '--Default--', 'streamSlot': 1} for item in chosen]
+        fingerprint = hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
+        if entries and (self.state.get('catalogFingerprint') != fingerprint or REQUEST_PROGRAM not in programs):
+            if REQUEST_PROGRAM in programs:
+                current = self.transport(FPP + '/api/playlist/' + urllib.parse.quote(REQUEST_PROGRAM, safe=''))
+                if current.get('desc') != 'Managed by LEDshows Connector':
+                    raise ValueError('Reserved request program name is already in use')
+            result = self.transport(FPP + '/api/playlist/' + urllib.parse.quote(REQUEST_PROGRAM, safe=''),
+                                    {'name': REQUEST_PROGRAM, 'version': 4, 'desc': 'Managed by LEDshows Connector',
+                                     'repeat': 0, 'loopCount': 0, 'random': 0, 'leadIn': [], 'mainPlaylist': entries, 'leadOut': []})
+            if isinstance(result, dict) and result.get('Status') == 'Error':
+                raise ValueError('Cannot prepare request catalog')
+            self.state['catalogFingerprint'] = fingerprint
+            self.save()
+        self.songs = [{'id': item['id'], 'title': item['title'], 'audioUrl': ''} for item in chosen]
+        self.allowed = {item['id']: {'playlist': REQUEST_PROGRAM, 'index': index + 1,
+                       'title': item['title'], 'media': item['filename'], 'sequence': item['sequence']} for index, item in enumerate(chosen)}
         self.updated_catalog = time.monotonic()
 
     def tick(self):
@@ -129,8 +140,8 @@ class Connector:
         title = os.path.splitext(os.path.basename(media or sequence or current))[0]
         active_id = ''
         for sid, song in self.allowed.items():
-            if current == song['playlist'] or (media and media == song['media']) or (not media and sequence and sequence == song['sequence']):
-                title, active_id = song['playlist'], sid
+            if (media and os.path.basename(media) == song['media']) or (not media and sequence and sequence == song['sequence']):
+                title, active_id = song['title'], sid
                 break
         pending = self.state.get('pending')
         ack = None
@@ -144,14 +155,17 @@ class Connector:
                 ack = {'id': pending['id'], 'ok': True}
         payload = {'showId': self.config['showId'], 'token': self.config['token'], 'songs': self.songs,
                    'playing': playing, 'accepting': bool(self.config.get('acceptRequests', False)),
-                   'title': title if playing else '', 'elapsed': float(status.get('seconds_played', 0) or 0)}
+                   'listening': bool(self.config.get('publishAudio', False)), 'activeSong': active_id,
+                   'requestMode': self.config.get('requestMode', 'next'), 'allowIdleRequests': bool(self.config.get('allowIdleRequests', True)),
+                   'title': title if playing else '', 'elapsed': float(status.get('seconds_played', 0) or 0), 'sampledAt': time.time()}
         if ack:
             payload['ack'] = ack
         response = self.transport(ENDPOINT, payload, timeout=12)
         if not response.get('success'):
             raise ValueError('Website rejected the heartbeat')
+        self.audio_publisher.offer([x for x in self.library if x['id'] in self.allowed])
         atomic_json(self.state_path.parent / 'status.json', {'lastHeartbeat': int(time.time()),
-                    'songs': len(self.songs), 'playing': playing, 'accepting': payload['accepting'], 'showId': self.config['showId']})
+                    'songs': len(self.songs), 'playing': playing, 'accepting': payload['accepting'], 'showId': self.config['showId'], 'audioReady': len(self.audio_publisher.done), 'audioError': self.audio_publisher.error})
         if ack:
             self.state.pop('pending', None)
             self.save()
@@ -162,14 +176,33 @@ class Connector:
         if self.state.get('pending', {}).get('id') == rid:
             return  # Wait until this song starts, then acknowledge. Never overwrite it.
         sid = requested.get('song_id')
-        if sid not in self.allowed or not playing or self.state.get('pending'):
+        if sid not in self.allowed or self.state.get('pending') or (not playing and not self.config.get('allowIdleRequests', True)):
             return
+        mode = self.config.get('requestMode', 'next')
+        if mode == 'queue' and playing:
+            info = status.get('current_playlist', {})
+            count, position = int(info.get('count', 0) or 0), int(info.get('index', 0) or 0)
+            if current == REQUEST_PROGRAM or count < 1 or position < count:
+                return
         self.state['pending'] = {'id': rid, 'song_id': sid, 'time': time.time(), 'phase': 'attempting'}
         self.save()  # Durable before dispatch: restarting cannot duplicate an uncertain command.
         try:
-            result = self.transport(FPP + '/api/command', {'command': 'Insert Playlist After Current',
-                'multisyncCommand': False, 'multisyncHosts': '',
-                'args': [self.allowed[sid]['playlist'], '-1', '-1', 'false']})
+            song = self.allowed[sid]
+            if not playing:
+                command, args = 'Start Playlist At Item', [REQUEST_PROGRAM, str(song['index']), 'false', 'false', 'false']
+                # Start At Item has no end argument. Use a generated one-song runtime program.
+                one = self.library[next(i for i, x in enumerate(self.library) if x['id'] == sid)]
+                one_name = 'LEDshows Connector Single Request'
+                self.transport(FPP + '/api/playlist/' + urllib.parse.quote(one_name, safe=''),
+                    {'name': one_name, 'version': 4, 'desc': 'Managed by LEDshows Connector', 'repeat': 0,
+                     'leadIn': [], 'leadOut': [], 'mainPlaylist': [{'type': 'both' if one['sequence'] else 'media',
+                     'enabled': 1, 'mediaName': one['filename'], 'sequenceName': one['sequence'], 'playOnce': 0, 'streamSlot': 1, 'videoOut': '--Default--'}]})
+                command, args = 'Start Playlist', [one_name, 'false', 'false', 'false']
+            else:
+                command = 'Insert Playlist Immediate' if mode == 'immediate' else 'Insert Playlist After Current'
+                args = [REQUEST_PROGRAM, str(song['index']), str(song['index']), 'false']
+            result = self.transport(FPP + '/api/command', {'command': command,
+                'multisyncCommand': False, 'multisyncHosts': '', 'args': args})
             if isinstance(result, dict) and (str(result.get('Status', '')).lower() == 'error' or 'error' in result):
                 raise ValueError('FPP rejected the requested playlist')
             self.state['pending']['phase'] = 'waiting'
@@ -207,7 +240,7 @@ def main():
         stopping = True
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    delay = 3
+    delay = 1
     logging.info('Connector started')
     while not stopping:
         try:

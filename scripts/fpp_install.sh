@@ -18,5 +18,7 @@ fi
 chmod 600 "$CONFIG"
 if [ "$(id -u)" = 0 ]; then chown -R fpp:fpp "$DATA"; fi
 chmod 755 "$PLUGIN_DIR"/scripts/*.sh "$PLUGIN_DIR/connector.py"
+bash "$PLUGIN_DIR/scripts/preStop.sh"
+bash "$PLUGIN_DIR/scripts/postStart.sh"
 echo 'LEDshows Connector installed. Open Content Setup > LEDshows Connector to configure.'
 echo 'No show playback settings were changed and FPP was not restarted.'

@@ -2,21 +2,48 @@
   "repoName": "fpp-ledshows",
   "name": "LEDshows Connector",
   "author": "LEDshows.nl / Kingshome0317",
-  "description": "Connect your FPP lightshow to LEDshows.nl: now playing and visitor song requests from an explicitly selected catalog.",
+  "description": "Connect your show to LEDshows.nl with song selection, configurable requests and synchronized listening.",
   "homeURL": "https://github.com/Kingshome0317/fpp-ledshows",
   "srcURL": "https://github.com/Kingshome0317/fpp-ledshows.git",
   "bugURL": "https://github.com/Kingshome0317/fpp-ledshows/issues",
   "allowUpdates": 1,
   "releaseNotesStyle": "gitHistory",
-  "versions": [{"minFPPVersion": "10.0", "maxFPPVersion": "0", "branch": "main", "sha": ""}],
+  "versions": [
+    {
+      "minFPPVersion": "10.0",
+      "maxFPPVersion": "0",
+      "branch": "main",
+      "sha": ""
+    }
+  ],
   "privacy": {
-    "summary": "When enabled, sends your selected song catalog and playback status to kaart.ledshows.nl and receives visitor song requests for your show.",
-    "sends": [{"to": "kaart.ledshows.nl", "what": "Show ID, private pairing token over HTTPS, selected playlist titles and song IDs, optional public audio URLs, playback status and position, request acknowledgements.", "why": "Display this show and process explicitly permitted visitor song requests.", "alwaysOn": false}],
-    "collects": [{"what": "Transient song request ID and selected song ID, with no visitor identity", "about": "visitors", "keptDays": 1, "canDelete": false, "where": "plugindata/fpp-ledshows/runtime-state.json; cleared after acknowledgement or expiry"}],
+    "summary": "When enabled, shares selected songs and playback timing with LEDshows.nl. Optional listening publishes the selected source audio to your show page.",
+    "sends": [
+      {
+        "to": "kaart.ledshows.nl",
+        "what": "Show ID, private pairing token over HTTPS, selected song names and IDs, playback position, request settings and acknowledgements. When listening is enabled, the selected source audio files (max 50 MB each).",
+        "why": "Display this show and process explicitly permitted visitor song requests.",
+        "alwaysOn": false
+      }
+    ],
+    "collects": [
+      {
+        "what": "Transient song request ID and selected song ID, with no visitor identity",
+        "about": "visitors",
+        "keptDays": 1,
+        "canDelete": false,
+        "where": "plugindata/fpp-ledshows/runtime-state.json; cleared after acknowledgement or expiry"
+      }
+    ],
     "sensors": [],
     "remoteAccess": "none",
-    "systemChanges": [{"kind": "service", "what": "Runs one Python connector as the fpp user through FPP startup/shutdown hooks; no systemd service or listening port."}],
+    "systemChanges": [
+      {
+        "kind": "service",
+        "what": "Runs one Python connector as the fpp user through FPP startup/shutdown hooks; no systemd service or listening port."
+      }
+    ],
     "closedCode": false,
-    "other": "Outbound HTTPS only; no port forwarding. The operator explicitly enables the connector and selects playlists. Requests insert a selected playlist after the current item through the local FPP API. No arbitrary shell or FPP commands are accepted from the website. Configuration and transient request state are kept in private plugindata. Audio files are not uploaded. Browser audio from optional public URLs is approximate, not sample-accurate live streaming. First hardware test pending."
+    "other": "Outbound HTTPS only. The operator enables the connector and chooses individual media files. Listening copies the selected source audio to private storage on kaart.ledshows.nl; public show visitors can play it while listening remains enabled. Playback follows FPP position, with visitor timing adjustment; it is not a capture of the physical audio output and has no microphone fingerprinting. Requests can run next, after the show, or interrupt immediately, as selected by the operator. The connector manages two reserved request programs through FPP APIs. No arbitrary remote commands or system configuration changes."
   }
 }

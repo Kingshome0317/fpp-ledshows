@@ -5,5 +5,9 @@
   "token": "REPLACE_WITH_PRIVATE_KEY_FROM_YOUR_SHOW_MANAGER",
   "playlists": [],
   "audio": {},
-  "acceptRequests": false
+  "acceptRequests": false,
+  "songs": [],
+  "requestMode": "next",
+  "allowIdleRequests": true,
+  "publishAudio": false
 }

@@ -1,87 +1,43 @@
 # LEDshows Connector for FPP
 
-Connect a Falcon Player show to [LEDshows.nl](https://kaart.ledshows.nl/nieuw/).
-Visitors see the current song and can request songs from the operator's selected
-catalog. The connector makes outbound HTTPS requests; no port forwarding is needed.
+Connect your FPP 10 show to [LEDshows.nl](https://kaart.ledshows.nl/nieuw/). Version 0.3.
 
-**Development preview, 0.2.** Targets FPP 10. API command compatibility was checked
-on FPP 10.2 / Raspberry Pi 5; a complete hardware playback test is still pending.
-This repository is not yet included in FPP's official plugin catalog.
+## Install or update
 
-## Install through FPP 10's Plugin Manager
+Set FPP Settings → UI Level to Developer, then open Content Setup → Plugin Manager. Paste:
 
-1. Set FPP's UI level to **Developer** in FPP Settings. Custom plugin URL entry
-   is hidden at other UI levels in FPP 10.2.
-2. Open **Content Setup → Plugin Manager**.
-3. Paste this URL into the plugin search box:
+`https://raw.githubusercontent.com/Kingshome0317/fpp-ledshows/main/pluginInfo.json`
 
-   `https://raw.githubusercontent.com/Kingshome0317/fpp-ledshows/main/pluginInfo.json`
-
-4. Open **LEDshows Connector**, read its disclosure and install it.
-5. Open **Content Setup → LEDshows Connector** to configure it.
-
-FPP installs the Git repository and offers updates through its Plugin Manager.
-A standalone ZIP upload is not this install method. To appear in the normal
-plugin list, this plugin must first be submitted to and accepted by FPP's maintainers.
+Install LEDshows Connector, or use Update on the installed card. This plugin is not yet in FPP's official catalog. Open Content Setup → LEDshows Connector.
 
 ## Configure
 
-1. Log in to LEDshows.nl and open your show's management page, then **FPP koppelen**.
-2. Generate a private pairing key. In the FPP plugin page, enter your show ID and
-   paste the key into the password field. Never publish the key or commit it.
-3. Create one FPP playlist per requestable song. Each must contain exactly one
-   enabled media, sequence, or combined item, with no lead-in/out, script or command.
-4. Select those playlists in the connector page.
-5. Enable the connector; optionally allow visitor requests. Save.
-6. Refresh the connector page after a few seconds and check the connection status.
+Enter your LEDshows show ID and pairing key (website: Beheer → FPP koppelen). Select individual music files from FPP; no per-song program needs to be created by hand. Existing FPP sequence/media pairings are reused. Select up to 100 songs.
 
-Start your normal background playlist in FPP. A request is inserted after the
-current item; the original playlist resumes afterwards. The connector never starts
-an idle show. It offers only one pending request to FPP at a time and does not
-blindly retry an uncertain playback command. Website requests expire after ten minutes.
+Choose how requests play:
 
-## Optional listening
+- Next: after the current item, then the normal show resumes.
+- Queue: wait until the last item of the current program before inserting the request.
+- Immediate: interrupt the current item, then resume through FPP's insertion behavior.
 
-Each selected song may have a public HTTPS audio URL supplied by the operator.
-The website's browser player approximately follows FPP's reported position.
-This is not realtime audio transport or sample-accurate synchronization like PulseMesh.
-No audio file is uploaded from the Pi. Make publicly accessible audio available
-only when you are entitled to do so.
+An independent setting allows a request to start music when FPP is idle. Requests are serialized; uncertain commands are not blindly retried. The connector maintains reserved programs named LEDshows Connector Requests and LEDshows Connector Single Request. It does not edit your existing programs.
 
-## Manual fallback
+## Listening
 
-If the Plugin Manager cannot be used, run these commands in FPP's SSH shell:
+Enable audio publication to offer the selected tracks on your public show page. The connector copies only the selected source audio to kaart.ledshows.nl (maximum 50 MB per track). Visitors tap Luister mee to play the currently active track; timing follows FPP, with small drift corrections and a manual offset control.
 
-```sh
-. /opt/fpp/scripts/common
-git clone --branch main https://github.com/Kingshome0317/fpp-ledshows.git "$MEDIADIR/plugins/fpp-ledshows"
-bash "$MEDIADIR/plugins/fpp-ledshows/scripts/fpp_install.sh"
-```
+This is synchronized playback of the same source audio, not microphone recognition or a capture of speakers, live announcements or hardware mixer output. Browser, speaker and network delays limit precision. No microphone permission is requested.
 
-This refuses to clone over an existing directory. Configuration then takes place
-on the same FPP plugin page. Do not extract a ZIP over an existing installation.
+Audio is stored outside the public web root and served through the show API only while that song is selected and listening remains enabled. Old cached files are removed during uploads after seven days; inactive copies may remain in private server storage until maintenance. The plugin has no listening port and needs no port forwarding.
 
-## Storage, operation and removal
+## Operation and privacy
 
-Private configuration, pairing key, transient request ID, heartbeat status and lock:
-`<mediadir>/plugindata/fpp-ledshows/` (directory 0700; files 0600).
-FPP's `config/` backup does not contain this pairing key. Re-pair after reinstalling
-on another SD card. An older 0.1 configuration is migrated during installation.
+Private settings and transient request state: `<mediadir>/plugindata/fpp-ledshows/`, directory 0700, files 0600. Pairing keys are never displayed or logged. Log: FPP's log directory, `plugin-fpp-ledshows.log`. FPP lifecycle hooks run one connector as user fpp. Audio transfers happen in a background worker so they do not stop status updates. No extra Python packages.
 
-Log: FPP's normal log directory, `plugin-fpp-ledshows.log`; secrets are never logged.
-Only Python's standard library and FPP's installed `flock` utility are used.
-Startup/shutdown hooks manage a single connector process as the `fpp` user. There
-are no extra system services, listeners or arbitrary remote commands. FPP's show,
-network and output configuration are untouched.
+Before uninstalling, disable the connector in its page and revoke the key on the website. Uninstall stops its process and removes private configuration; source songs and your own programs stay.
 
-Disable the connector in its page before removal, then uninstall in Plugin Manager.
-The uninstall hook stops it and deletes its private configuration and transient
-state. Revoke the pairing key from the website too. Shows, sequences and media stay.
+## Tests
 
-## Development checks
+`python3 -m unittest discover -s tests -v`
 
-```sh
-python3 -m unittest discover -s tests -v
-```
-
-Please report problems using GitHub Issues without tokens or private configuration.
+Report issues without keys or private configuration.

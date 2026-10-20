@@ -1,127 +1,70 @@
-import sys
-import tempfile
-import time
-import json
-import unittest
+import sys, tempfile, unittest, time, json
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from connector import Connector, ENDPOINT, FPP, song_id
-
+from connector import Connector, ENDPOINT, FPP
+from library import REQUEST_PROGRAM
 
 class FakeFPP:
     def __init__(self):
-        self.commands = []
-        self.heartbeats = []
-        self.requests = []
-        self.playlist = 'Background'
-        self.playing = True
-        self.fail_command = False
-
-    def __call__(self, url, payload=None, timeout=3):
-        if url == FPP + '/api/fppd/status':
-            return {'status': 1 if self.playing else 0, 'seconds_played': 12,
-                    'current_playlist': {'playlist': self.playlist}, 'current_song': ''}
-        if url.startswith(FPP + '/api/playlist/'):
-            if url.endswith('Bad'):
-                return {'mainPlaylist': [{'type': 'command', 'enabled': 1}]}
-            return {'name': 'Good', 'mainPlaylist': [{'type': 'both', 'mediaName': 'Good.mp3', 'sequenceName': 'Good.fseq'}]}
-        if url == ENDPOINT:
+        self.commands=[];self.heartbeats=[];self.requests=[];self.playing=True;self.media='Background.mp3';self.fail=False;self.position=1
+        self.programs={'Main':{'name':'Main','mainPlaylist':[{'type':'both','enabled':1,'mediaName':'Good.mp3','sequenceName':'Good.fseq'},{'type':'both','enabled':1,'mediaName':'Second.mp3','sequenceName':'Second.fseq'},{'type':'command','enabled':1,'command':'Reboot'}]}}
+    def __call__(self,url,payload=None,timeout=3):
+        if url==FPP+'/api/media': return ['Good.mp3','Second.mp3','../secret.mp3']
+        if url==FPP+'/api/playlists': return list(self.programs)
+        if url==FPP+'/api/playlists/playable': return ['Main','Good.fseq','Second.fseq']
+        if url.startswith(FPP+'/api/playlist/'):
+            import urllib.parse
+            name=urllib.parse.unquote(url.rsplit('/',1)[1])
+            if payload is not None:self.programs[name]=payload;return payload
+            return self.programs[name]
+        if url==FPP+'/api/fppd/status':return {'status':1 if self.playing else 0,'current_song':self.media if self.playing else '', 'seconds_played':12,'current_playlist':{'playlist':'Main','index':self.position,'count':2}}
+        if url==ENDPOINT:
             self.heartbeats.append(payload)
-            if payload.get('ack') and self.requests:
-                self.requests.pop(0)
-            return {'success': True, 'data': {'request': self.requests[0] if self.requests else None}}
-        if url == FPP + '/api/command':
+            if payload.get('ack') and self.requests:self.requests.pop(0)
+            return {'success':True,'data':{'request':self.requests[0] if self.requests else None}}
+        if url==FPP+'/api/command':
             self.commands.append(payload)
-            if self.fail_command:
-                raise OSError('simulated network failure')
-            return {'Status': 'OK'}
-        raise AssertionError('Unexpected endpoint')
-
+            if self.fail:raise OSError('uncertain response')
+            return {'Status':'OK'}
+        raise AssertionError(url)
 
 class ConnectorTests(unittest.TestCase):
-    def test_changed_pairing_drops_previous_request(self):
-        self.connector.state['pending'] = {'id': 99, 'time': time.time()}
-        self.connector.save()
-        new_cfg = dict(self.cfg, showId=2)
-        reloaded = Connector(new_cfg, self.path, self.fpp)
-        self.assertNotIn('pending', reloaded.state)
-
-    def test_expired_request_state_is_purged_without_network(self):
-        self.connector.state['pending'] = {'id': 99, 'time': time.time() - 90000}
-        self.connector.save()
-        reloaded = Connector(self.cfg, self.path, self.fpp)
-        self.assertNotIn('pending', reloaded.state)
-        self.assertNotIn('pending', json.loads(self.path.read_text()))
-
-    def test_local_status_contains_no_pairing_token(self):
-        self.connector.tick()
-        raw = (self.path.parent / 'status.json').read_text()
-        self.assertNotIn(self.cfg['token'], raw)
-        self.assertEqual(json.loads(raw)['showId'], 1)
-
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.path = Path(self.temp.name) / 'state.json'
-        self.fpp = FakeFPP()
-        self.cfg = {'showId': 1, 'token': 'a' * 64, 'playlists': ['Good', 'Bad'],
-                    'audio': {'Good': 'https://example.invalid/own-recording.mp3'}, 'acceptRequests': True}
-        self.connector = Connector(self.cfg, self.path, self.fpp)
-
-    def tearDown(self):
-        self.temp.cleanup()
-
-    def enqueue(self, rid=1, name='Good'):
-        self.fpp.requests.append({'id': rid, 'song_id': song_id(name)})
-
-    def test_only_single_media_playlists_are_exposed(self):
-        self.connector.tick()
-        self.assertEqual(['Good'], [s['title'] for s in self.fpp.heartbeats[-1]['songs']])
-        self.assertNotIn('current_playlist', self.fpp.heartbeats[-1])
-
-    def test_queue_waits_for_requested_song_to_start(self):
-        self.enqueue()
-        self.connector.tick()
-        self.connector.tick()
-        self.assertEqual(1, len(self.fpp.commands))
-        self.assertEqual('Insert Playlist After Current', self.fpp.commands[0]['command'])
-        self.assertNotIn('ack', self.fpp.heartbeats[-1])
-        self.fpp.playlist = 'Good'
-        self.connector.tick()
-        self.assertTrue(self.fpp.heartbeats[-1]['ack']['ok'])
-        self.assertNotIn('pending', self.connector.state)
-
-    def test_restart_does_not_duplicate_queued_song(self):
-        self.enqueue()
-        self.connector.tick()
-        restarted = Connector(self.cfg, self.path, self.fpp)
-        restarted.tick()
-        self.assertEqual(1, len(self.fpp.commands))
-
-    def test_uncertain_command_is_not_retried(self):
-        self.enqueue()
-        self.fpp.fail_command = True
-        self.connector.tick()
-        self.connector.tick()
-        self.assertEqual(1, len(self.fpp.commands))
-        self.assertFalse(self.fpp.heartbeats[-1]['ack']['ok'])
-
-    def test_website_cannot_inject_unlisted_playlist(self):
-        self.enqueue(name='Unlisted command')
-        self.connector.tick()
-        self.assertFalse(self.fpp.commands)
-
-    def test_idle_show_is_never_started(self):
-        self.enqueue()
-        self.fpp.playing = False
-        self.connector.tick()
-        self.assertFalse(self.fpp.commands)
-
+        self.temp=tempfile.TemporaryDirectory();self.path=Path(self.temp.name)/'state.json';self.fpp=FakeFPP()
+        self.cfg={'showId':1,'token':'a'*64,'songs':['Good.mp3','Second.mp3'],'acceptRequests':True,'allowIdleRequests':True,'requestMode':'next','publishAudio':False}
+        self.c=Connector(self.cfg,self.path,self.fpp);self.c.catalog();self.sid=self.c.songs[0]['id']
+    def tearDown(self):self.temp.cleanup()
+    def request(self):self.fpp.requests=[{'id':7,'song_id':self.sid}]
+    def test_individual_songs_from_multi_song_program(self):
+        self.assertEqual(len(self.c.songs),2)
+        self.assertEqual(self.c.allowed[self.sid]['sequence'],'Good.fseq')
+        self.assertEqual(len(self.fpp.programs[REQUEST_PROGRAM]['mainPlaylist']),2)
+    def test_catalog_excludes_unselected_and_path_traversal(self):
+        self.cfg['songs']=['../secret.mp3'];self.c.catalog();self.assertEqual(self.c.songs,[])
     def test_operator_must_enable_requests(self):
-        self.cfg['acceptRequests'] = False
-        self.enqueue()
-        self.connector.tick()
-        self.assertFalse(self.fpp.commands)
-
-
-if __name__ == '__main__':
-    unittest.main()
+        self.cfg['acceptRequests']=False;self.request();self.c.tick();self.assertEqual(self.fpp.commands,[])
+    def test_next_selects_exactly_one_track(self):
+        self.request();self.c.tick();cmd=self.fpp.commands[0];self.assertEqual(cmd['command'],'Insert Playlist After Current');self.assertEqual(cmd['args'][1:3],['1','1'])
+    def test_immediate_uses_fpp_insertion(self):
+        self.cfg['requestMode']='immediate';self.request();self.c.tick();self.assertEqual(self.fpp.commands[0]['command'],'Insert Playlist Immediate')
+    def test_queue_waits_until_final_item(self):
+        self.cfg['requestMode']='queue';self.request();self.c.tick();self.assertEqual(self.fpp.commands,[])
+        self.fpp.position=2;self.c.tick();self.assertEqual(len(self.fpp.commands),1)
+    def test_idle_request_can_start_one_song(self):
+        self.fpp.playing=False;self.request();self.c.tick();self.assertEqual(self.fpp.commands[0]['command'],'Start Playlist')
+        program=self.fpp.programs[self.fpp.commands[0]['args'][0]];self.assertEqual(len(program['mainPlaylist']),1)
+    def test_idle_start_can_be_disabled(self):
+        self.fpp.playing=False;self.cfg['allowIdleRequests']=False;self.request();self.c.tick();self.assertEqual(self.fpp.commands,[])
+    def test_website_cannot_inject_unlisted_song(self):
+        self.fpp.requests=[{'id':7,'song_id':'f'*64}];self.c.tick();self.assertEqual(self.fpp.commands,[])
+    def test_pending_is_not_sent_twice(self):
+        self.request();self.c.tick();again=Connector(self.cfg,self.path,self.fpp);again.tick();self.assertEqual(len(self.fpp.commands),1)
+        self.fpp.media='Good.mp3';again.tick();self.assertEqual(self.fpp.heartbeats[-1]['ack'],{'id':7,'ok':True})
+    def test_uncertain_command_is_not_retried(self):
+        self.fpp.fail=True;self.request();self.c.tick();self.c.tick();self.assertEqual(len(self.fpp.commands),1)
+    def test_changed_pairing_drops_previous_request(self):
+        self.request();self.c.tick();again=Connector(dict(self.cfg,showId=2),self.path,self.fpp);self.assertNotIn('pending',again.state)
+    def test_expired_state_is_purged(self):
+        self.c.state['pending']={'id':7,'time':time.time()-90000};self.c.save();Connector(self.cfg,self.path,self.fpp);self.assertNotIn('pending',json.loads(self.path.read_text()))
+    def test_status_never_contains_token(self):
+        self.c.tick();raw=(self.path.parent/'status.json').read_text();self.assertNotIn(self.cfg['token'],raw)

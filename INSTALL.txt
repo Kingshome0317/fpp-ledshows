@@ -1,9 +1,3 @@
-LEDshows Connector 0.2 — FPP 10 development preview
+LEDshows Connector 0.3
 
-See README.md for Plugin Manager installation using the repository URL,
-configuration through Content Setup > LEDshows Connector, updates and removal.
-
-Private configuration now lives in <mediadir>/plugindata/fpp-ledshows/config.json.
-Do not paste keys in support messages or store them in Git.
-The previous 0.1 config file is migrated by the install script.
-Full hardware playback test is still pending.
+See README.md for installation and configuration through the FPP Plugin Manager.
