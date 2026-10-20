@@ -1,0 +1,22 @@
+{
+  "repoName": "fpp-ledshows",
+  "name": "LEDshows Connector",
+  "author": "LEDshows.nl / Kingshome0317",
+  "description": "Connect your FPP lightshow to LEDshows.nl: now playing and visitor song requests from an explicitly selected catalog.",
+  "homeURL": "https://github.com/Kingshome0317/fpp-ledshows",
+  "srcURL": "https://github.com/Kingshome0317/fpp-ledshows.git",
+  "bugURL": "https://github.com/Kingshome0317/fpp-ledshows/issues",
+  "allowUpdates": 1,
+  "releaseNotesStyle": "gitHistory",
+  "versions": [{"minFPPVersion": "10.0", "maxFPPVersion": "0", "branch": "main", "sha": ""}],
+  "privacy": {
+    "summary": "When enabled, sends your selected song catalog and playback status to kaart.ledshows.nl and receives visitor song requests for your show.",
+    "sends": [{"to": "kaart.ledshows.nl", "what": "Show ID, private pairing token over HTTPS, selected playlist titles and song IDs, optional public audio URLs, playback status and position, request acknowledgements.", "why": "Display this show and process explicitly permitted visitor song requests.", "alwaysOn": false}],
+    "collects": [{"what": "Transient song request ID and selected song ID, with no visitor identity", "about": "visitors", "keptDays": 1, "canDelete": false, "where": "plugindata/fpp-ledshows/runtime-state.json; cleared after acknowledgement or expiry"}],
+    "sensors": [],
+    "remoteAccess": "none",
+    "systemChanges": [{"kind": "service", "what": "Runs one Python connector as the fpp user through FPP startup/shutdown hooks; no systemd service or listening port."}],
+    "closedCode": false,
+    "other": "Outbound HTTPS only; no port forwarding. The operator explicitly enables the connector and selects playlists. Requests insert a selected playlist after the current item through the local FPP API. No arbitrary shell or FPP commands are accepted from the website. Configuration and transient request state are kept in private plugindata. Audio files are not uploaded. Browser audio from optional public URLs is approximate, not sample-accurate live streaming. First hardware test pending."
+  }
+}

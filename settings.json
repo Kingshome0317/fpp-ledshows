@@ -1,0 +1,7 @@
+{
+  "ConnectorToken": {
+    "description": "Private LEDshows pairing key; stored separately in plugindata",
+    "type": "password",
+    "default": ""
+  }
+}
