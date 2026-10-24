@@ -17,7 +17,7 @@ class FakeFPP:
             name=urllib.parse.unquote(url.rsplit('/',1)[1])
             if payload is not None:self.programs[name]=payload;return payload
             return self.programs[name]
-        if url==FPP+'/api/fppd/status':return {'status':1 if self.playing else 0,'current_song':self.media if self.playing else '', 'seconds_played':12,'current_playlist':{'playlist':'Main','index':self.position,'count':2}}
+        if url==FPP+'/api/fppd/status':return {'status':1 if self.playing else 0,'current_song':self.media if self.playing else '', 'current_sequence':'Background.fseq' if self.playing else '', 'seconds_played':12,'current_playlist':{'playlist':'Main','index':self.position,'count':2}}
         if url==ENDPOINT:
             self.heartbeats.append(payload)
             if payload.get('ack') and self.requests:self.requests.pop(0)
@@ -50,11 +50,31 @@ class ConnectorTests(unittest.TestCase):
     def test_queue_waits_until_final_item(self):
         self.cfg['requestMode']='queue';self.request();self.c.tick();self.assertEqual(self.fpp.commands,[])
         self.fpp.position=2;self.c.tick();self.assertEqual(len(self.fpp.commands),1)
-    def test_idle_request_can_start_one_song(self):
-        self.fpp.playing=False;self.request();self.c.tick();self.assertEqual(self.fpp.commands[0]['command'],'Start Playlist')
-        program=self.fpp.programs[self.fpp.commands[0]['args'][0]];self.assertEqual(len(program['mainPlaylist']),1)
-    def test_idle_start_can_be_disabled(self):
-        self.fpp.playing=False;self.cfg['allowIdleRequests']=False;self.request();self.c.tick();self.assertEqual(self.fpp.commands,[])
+    def test_idle_never_starts_even_with_legacy_setting(self):
+        self.fpp.playing=False;self.cfg['allowIdleRequests']=True;self.request();self.c.tick()
+        self.assertEqual(self.fpp.commands,[]);self.assertFalse(self.fpp.heartbeats[-1]['accepting'])
+        self.assertFalse(self.fpp.heartbeats[-1]['showActive'])
+    def test_audio_only_is_not_an_active_lightshow(self):
+        base=self.fpp.__call__
+        def transport(url,payload=None,timeout=3):
+            result=base(url,payload,timeout)
+            if url==FPP+'/api/fppd/status':result['current_sequence']=''
+            return result
+        self.c.transport=transport;self.request();self.c.tick()
+        self.assertEqual(self.fpp.commands,[]);self.assertFalse(self.fpp.heartbeats[-1]['accepting'])
+    def test_stop_between_heartbeat_and_command_does_not_start_song(self):
+        base=self.fpp.__call__;calls=[0]
+        def transport(url,payload=None,timeout=3):
+            if url==FPP+'/api/fppd/status':
+                calls[0]+=1
+                if calls[0]>1:return {'status':0,'current_sequence':''}
+            return base(url,payload,timeout)
+        self.c.transport=transport;self.request();self.c.tick();self.assertEqual(self.fpp.commands,[])
+        self.assertEqual(self.c.state['pending']['phase'],'failed')
+    def test_stopping_or_paused_does_not_accept(self):
+        from connector import show_active
+        for status in [0,2,3,4,5]:self.assertFalse(show_active({'status':status,'current_sequence':'Good.fseq'}))
+        self.assertTrue(show_active({'status':1,'current_sequence':'Good.fseq'}))
     def test_website_cannot_inject_unlisted_song(self):
         self.fpp.requests=[{'id':7,'song_id':'f'*64}];self.c.tick();self.assertEqual(self.fpp.commands,[])
     def test_pending_is_not_sent_twice(self):
