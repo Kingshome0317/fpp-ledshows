@@ -8,6 +8,6 @@
   "acceptRequests": false,
   "songs": [],
   "requestMode": "next",
-  "allowIdleRequests": true,
+  "allowIdleRequests": false,
   "publishAudio": false
 }

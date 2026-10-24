@@ -16,6 +16,11 @@ from audio_publisher import AudioPublisher
 ENDPOINT = 'https://kaart.ledshows.nl/nieuw/?api=fpp-heartbeat'
 FPP = 'http://127.0.0.1'
 
+def show_active(status):
+    # FPP status 1 is playing; idle, stopping and paused must not accept requests.
+    return str(status.get('status', 0)) == '1' and bool(status.get('current_sequence', ''))
+
+
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -27,7 +32,7 @@ HTTP = urllib.request.build_opener(NoRedirect())
 
 def request(url, payload=None, timeout=3):
     data = None if payload is None else json.dumps(payload).encode()
-    headers = {'User-Agent': 'LEDshows-FPP-Connector/0.3'}
+    headers = {'User-Agent': 'LEDshows-FPP-Connector/0.4'}
     if data is not None:
         headers['Content-Type'] = 'application/json'
     req = urllib.request.Request(url, data, headers)
@@ -137,6 +142,7 @@ class Connector:
             self.catalog()
         status = self.transport(FPP + '/api/fppd/status')
         playing = str(status.get('status', 0)) in ('1', '2', '3')
+        active = show_active(status)
         current = status.get('current_playlist', {}).get('playlist', '')
         media = status.get('current_song', '') or status.get('media_filename', '')
         sequence = status.get('current_sequence', '')
@@ -157,9 +163,9 @@ class Connector:
             elif active_id == pending['song_id'] and playing:
                 ack = {'id': pending['id'], 'ok': True}
         payload = {'showId': self.config['showId'], 'token': self.config['token'], 'songs': self.songs,
-                   'playing': playing, 'accepting': bool(self.config.get('acceptRequests', False)),
+                   'playing': playing, 'showActive': active, 'accepting': active and bool(self.config.get('acceptRequests', False)),
                    'listening': bool(self.config.get('publishAudio', False)), 'activeSong': active_id,
-                   'requestMode': self.config.get('requestMode', 'next'), 'allowIdleRequests': bool(self.config.get('allowIdleRequests', True)),
+                   'requestMode': self.config.get('requestMode', 'next'), 'allowIdleRequests': False,
                    'title': title if playing else '', 'elapsed': float(status.get('seconds_played', 0) or 0), 'sampledAt': time.time()}
         if ack:
             payload['ack'] = ack
@@ -173,13 +179,13 @@ class Connector:
             self.state.pop('pending', None)
             self.save()
         requested = response['data'].get('request')
-        if not requested or not self.config.get('acceptRequests', False):
+        if not requested or not active or not self.config.get('acceptRequests', False):
             return
         rid = int(requested['id'])
         if self.state.get('pending', {}).get('id') == rid:
             return  # Wait until this song starts, then acknowledge. Never overwrite it.
         sid = requested.get('song_id')
-        if sid not in self.allowed or self.state.get('pending') or (not playing and not self.config.get('allowIdleRequests', True)):
+        if sid not in self.allowed or self.state.get('pending'):
             return
         mode = self.config.get('requestMode', 'next')
         if mode == 'queue' and playing:
@@ -187,23 +193,16 @@ class Connector:
             count, position = int(info.get('count', 0) or 0), int(info.get('index', 0) or 0)
             if current == REQUEST_PROGRAM or count < 1 or position < count:
                 return
+        if not show_active(self.transport(FPP + '/api/fppd/status')):
+            self.state['pending'] = {'id': rid, 'song_id': sid, 'time': time.time(), 'phase': 'failed'}
+            self.save()
+            return
         self.state['pending'] = {'id': rid, 'song_id': sid, 'time': time.time(), 'phase': 'attempting'}
         self.save()  # Durable before dispatch: restarting cannot duplicate an uncertain command.
         try:
             song = self.allowed[sid]
-            if not playing:
-                command, args = 'Start Playlist At Item', [REQUEST_PROGRAM, str(song['index']), 'false', 'false', 'false']
-                # Start At Item has no end argument. Use a generated one-song runtime program.
-                one = self.library[next(i for i, x in enumerate(self.library) if x['id'] == sid)]
-                one_name = 'LEDshows Connector Single Request'
-                self.transport(FPP + '/api/playlist/' + urllib.parse.quote(one_name, safe=''),
-                    {'name': one_name, 'version': 4, 'desc': 'Managed by LEDshows Connector', 'repeat': 0,
-                     'leadIn': [], 'leadOut': [], 'mainPlaylist': [{'type': 'both' if one['sequence'] else 'media',
-                     'enabled': 1, 'mediaName': one['filename'], 'sequenceName': one['sequence'], 'playOnce': 0, 'streamSlot': 1, 'videoOut': '--Default--'}]})
-                command, args = 'Start Playlist', [one_name, 'false', 'false', 'false']
-            else:
-                command = 'Insert Playlist Immediate' if mode == 'immediate' else 'Insert Playlist After Current'
-                args = [REQUEST_PROGRAM, str(song['index']), str(song['index']), 'false']
+            command = 'Insert Playlist Immediate' if mode == 'immediate' else 'Insert Playlist After Current'
+            args = [REQUEST_PROGRAM, str(song['index']), str(song['index']), 'false']
             result = self.transport(FPP + '/api/command', {'command': command,
                 'multisyncCommand': False, 'multisyncHosts': '', 'args': args})
             if isinstance(result, dict) and (str(result.get('Status', '')).lower() == 'error' or 'error' in result):

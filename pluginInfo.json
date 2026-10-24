@@ -44,6 +44,6 @@
       }
     ],
     "closedCode": false,
-    "other": "Outbound HTTPS only. The operator enables the connector and chooses individual media files. Listening copies the selected source audio to private storage on kaart.ledshows.nl; public show visitors can play it while listening remains enabled. Playback follows FPP position, with visitor timing adjustment; it is not a capture of the physical audio output and has no microphone fingerprinting. Requests can run next, after the show, or interrupt immediately, as selected by the operator. The connector manages two reserved request programs through FPP APIs. No arbitrary remote commands or system configuration changes."
+    "other": "Outbound HTTPS only. The operator enables the connector and chooses individual media files. Listening copies the selected source audio to private storage on kaart.ledshows.nl; public show visitors can play it while listening remains enabled. Playback follows FPP position, with visitor timing adjustment; it is not a capture of the physical audio output and has no microphone fingerprinting. Requests can run next, after the show, or interrupt immediately, as selected by the operator. Visitor requests are accepted only while FPP reports an actively playing sequence; they cannot start an idle or audio-only player. The connector manages its reserved request program through FPP APIs. No arbitrary remote commands or system configuration changes."
   }
 }

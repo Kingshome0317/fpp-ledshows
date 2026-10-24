@@ -1,6 +1,6 @@
 # LEDshows Connector for FPP
 
-Connect your FPP 10 show to [LEDshows.nl](https://kaart.ledshows.nl/nieuw/). Version 0.3.
+Connect your FPP 10 show to [LEDshows.nl](https://kaart.ledshows.nl/). Version 0.4.
 
 ## Install or update
 
@@ -20,7 +20,7 @@ Choose how requests play:
 - Queue: wait until the last item of the current program before inserting the request.
 - Immediate: interrupt the current item, then resume through FPP's insertion behavior.
 
-An independent setting allows a request to start music when FPP is idle. Requests are serialized; uncertain commands are not blindly retried. The connector maintains reserved programs named LEDshows Connector Requests and LEDshows Connector Single Request. It does not edit your existing programs.
+Requests are only accepted during an actively playing light sequence. They cannot start an idle show. Requests are serialized; uncertain commands are not blindly retried. The connector maintains a reserved request program and does not edit your existing programs.
 
 ## Listening
 
@@ -41,3 +41,6 @@ Before uninstalling, disable the connector in its page and revoke the key on the
 `python3 -m unittest discover -s tests -v`
 
 Report issues without keys or private configuration.
+
+## Version 0.4
+Requests are accepted only while FPP reports an actively playing sequence. Idle, paused, stopping, stale and audio-only states cannot start visitor requests. The previous idle-start setting is ignored. Pending requests are cancelled by the website when the show stops. Update through FPP Plugin Manager, then restart the connector.

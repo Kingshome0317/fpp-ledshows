@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if(!in_array($mode,['next','queue','immediate'],true))throw new RuntimeException('Kies hoe aanvragen afgespeeld worden.');
             $cfg = ['enabled' => isset($_POST['enabled']), 'endpoint' => 'https://kaart.ledshows.nl/nieuw/?api=fpp-heartbeat', 'showId' => (int)$id,
                     'token' => $token, 'songs' => array_values($selected), 'playlists'=>[], 'audio'=>(object)[],
-                    'requestMode'=>$mode,'allowIdleRequests'=>isset($_POST['allowIdleRequests']),
+                    'requestMode'=>$mode,'allowIdleRequests'=>false,
                     'publishAudio'=>isset($_POST['publishAudio']), 'acceptRequests' => isset($_POST['acceptRequests'])];
             lns_store($configFile, $cfg);
             $scripts = __DIR__ . '/scripts/';
@@ -85,7 +85,7 @@ $audioCfg = (array)($cfg['audio'] ?? []);
 <?php endforeach ?>
 <div class="form-check my-3"><input class="form-check-input" type="checkbox" name="acceptRequests" id="acceptRequests" <?= !empty($cfg['acceptRequests']) ? 'checked' : '' ?>><label class="form-check-label" for="acceptRequests">Bezoekers mogen gekozen nummers aanvragen</label></div>
 <div class="mb-3"><label class="form-label" for="requestMode">Wat gebeurt er met een aanvraag?</label><select class="form-select" id="requestMode" name="requestMode"><?php foreach(['next'=>'Als eerstvolgende, na het huidige nummer','queue'=>'Na afloop van de lopende show','immediate'=>'Direct afspelen en het huidige nummer onderbreken'] as $value=>$label): ?><option value="<?= $value ?>" <?= ($cfg['requestMode']??'next')===$value?'selected':'' ?>><?= $label ?></option><?php endforeach ?></select></div>
-<div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="allowIdleRequests" id="allowIdleRequests" <?= ($cfg['allowIdleRequests']??true)?'checked':'' ?>><label class="form-check-label" for="allowIdleRequests">Een aanvraag mag de muziek starten als de show stil staat</label></div>
+<p>Nummers aanvragen kan alleen terwijl FPP een lichtshow met een sequence afspeelt. Buiten een draaiende show zijn aanvragen gesloten; een aanvraag kan de show niet starten.</p>
 <h2>Meeluisteren</h2><div class="form-check my-3"><input class="form-check-input" type="checkbox" name="publishAudio" id="publishAudio" <?= !empty($cfg['publishAudio'])?'checked':'' ?>><label class="form-check-label" for="publishAudio">Audio van de gekozen nummers beschikbaar maken op mijn showpagina</label></div><p>De speler volgt automatisch het nummer en de afspeelpositie van FPP.</p>
 <p class="text-muted">Audio gereed: <?= (int)($status['audioReady']??0) ?> nummers<?= !empty($status['audioError'])?' · Een audiobestand kon nog niet worden klaargezet; er wordt opnieuw geprobeerd.':'' ?></p>
 <button class="btn btn-primary" type="submit">Opslaan en toepassen</button>
